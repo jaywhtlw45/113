@@ -1,46 +1,54 @@
 #include <iostream>
+#include <string>
+#include <bitset>
 using namespace std;
 
-// bitset header
+const int ALU_SIZE = 4;
 
-// Input: a, b, carry_in, operation
-// Output: result, carry_out
-void bit_add(int a, int b, int carry_in, int &sum, int &carry_out)
+int single_alu(int a, int b, int carry_in, int &carry_out)
 {
-    sum = a ^ b ^ carry_in;
     carry_out = (a & b) | (a ^ b) & carry_in;
+    cout << "carry_outsa: " << carry_out << endl;
+    return a ^ b ^ carry_in;
 }
 
-void bit_sub(int a, int b, int carry_in, int &sum, int &carry_out)
+void sub_bits(int a, int b, int carry_in, int &sum, int &carry_out)
 {
-    // perform 2's complement on a b
-    if (b == 0) // flip
-        b = 1;
-    else if (b == 1)
-        b = 0;
-
-    if (b == 0) // add 1
-        b = 1; 
-    else if (b == 1)
-    {
-        b == 0;
-        carry_in += 1;
-    }
-
-    bit_add(a, b, carry_in, sum, carry_out);
-
-    add(a, add(~b, 1));
+    sum = (a ^ b) ^ carry_in;
+    carry_out = ((!a) & b) | (!(a ^ b) & carry_in);
+    // add(a, add(~b, 1));
 }
+
+void multiple_alu(bitset<ALU_SIZE> a, bitset<ALU_SIZE> b, int carry_in, bitset<ALU_SIZE> &sum, int &carry_out)
+{
+    for (int i = 0; i < ALU_SIZE; i++)
+    {
+        sum[i] = single_alu(a[i], b[i], carry_in, carry_out);
+        carry_in = carry_out;
+    }
+}
+
 int main()
 {
-
-    int a = 0;
-    int b = 0;
+    // 16 bit ALU
+    bitset<ALU_SIZE> a("1001");
+    bitset<ALU_SIZE> b("0001");
     int carry_in = 0;
-    int sum;
+    bitset<ALU_SIZE> sum;
     int carry_out;
 
-    bit_add(a, b, carry_in, sum, carry_out);
-    cin.get();
+    cout << "a:    " << a << endl;
+    cout << "b:    " << b << endl;
+
+    multiple_alu(a, b, carry_in, sum, carry_out);
+
+    cout << "a:     " << a << endl;
+    cout << "b:     " << b << endl;
+    cout << "c_in:  " << carry_in << endl
+         << endl;
+    cout << "sum:   " << sum << endl;
+    cout << "c_out: " << carry_out << endl
+         << endl;
+
     return 0;
 }
