@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <bitset>
+#include <iomanip>
 using namespace std;
 
 const int ALU_SIZE = 4;
@@ -38,6 +39,38 @@ void sub_many_bits(bitset<ALU_SIZE> a, bitset<ALU_SIZE> b, int carry_in, bitset<
     {
         sum[i] = sub_one_bit(a[i], b[i], carry_in, carry_out);
         carry_in = carry_out;
+    }
+}
+
+void booths_alg(bitset<ALU_SIZE> md, bitset<ALU_SIZE> mq)
+{
+    bitset<ALU_SIZE> ac = 0;
+    int mq_neg1 = 0;
+    int counter = ALU_SIZE;
+
+    int carry_in, carry_out;
+
+    cout << "Booth's Algorithm" << endl
+         << "----------------" << endl;
+
+    while (counter < 0)
+    {
+        if (mq[0] == 0 && mq_neg1 == 1)
+        {
+            add_many_bits(ac, md, carry_in, ac, carry_out);
+        }
+        else if (mq[0] == 1 && mq_neg1 == 0)
+        {
+            sub_many_bits(ac, md, carry_in, ac, carry_out);
+        }
+
+        mq_neg1 = mq[0];
+        mq = mq >> 1;
+        mq[ALU_SIZE - 1] = ac[0];
+        ac = ac >> 1;
+        counter--;
+
+        cout << "cycle" << setw(ALU_SIZE + 4) << "md" << setw(ALU_SIZE + 4) << "ac" << setw(ALU_SIZE + 4) << "mq" << setw(ALU_SIZE + 4) << "mq(-1)";
     }
 }
 
@@ -80,6 +113,11 @@ int main()
     cout << "borrow_out: " << borrow_out << endl
          << endl;
 
+    // Booth's Algorithm
+    bitset<ALU_SIZE> md("0010");
+    bitset<ALU_SIZE> mq("0001");
+
+    booths_alg(md, mq);
+
     return 0;
 }
-
