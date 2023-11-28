@@ -33,12 +33,15 @@ int memory[MEM_SIZE];
 void fetchInstructions();
 void decodeInstruction(bitset<32> instruction);
 
-// execute load word instruction
+// execute load word instruction, cache hit, and cache miss
 void execLoadWord(bitset<5> rt, bitset<16> immediate);
+void lwHit(int index, int block, bitset<5> rt);
 void lwMiss(int index, bitset<5> rt, bitset<16> immediate);
 
-// execute store word instruction
+// execute store word instruction, cache hit, and cache miss
 void execStoreWord(bitset<5> rt, bitset<16> immediate);
+void swHit(int index, int block, bitset<5> rt);
+void swMiss(int index, bitset<5> rt, bitset<16> immediate);
 
 // find least recently used block, and write back address
 int findLRUBlock(int index);
@@ -53,13 +56,6 @@ bitset<32> stringToBitset(string line);
 
 // initialization and display functions
 void initializeMemory();
-void initializeRegisters()
-{
-    for (int i = 0; i < 8; ++i)
-    {
-        registers[i] = 0;
-    }
-}
 void displayCache();
 void displayMemory();
 void displayRegisters();
@@ -67,21 +63,18 @@ void displayRegisters();
 int main()
 {
     initializeMemory();
-    initializeRegisters();
-    cout << endl;
 
     // fetch, decode, then execute instructions
     fetchInstructions();
 
-    // display registers, cache, and memory
-    displayRegisters();
+    // displayRegisters();
     displayCache();
-    displayMemory();
+    // displayMemory();
 
     return 0;
 }
 
-// execute store word instruction
+// store word
 void execStoreWord(bitset<5> rt, bitset<16> immediate)
 {
     int index = getIndex(immediate);
@@ -101,28 +94,48 @@ void execStoreWord(bitset<5> rt, bitset<16> immediate)
         }
     }
 
+    cout << "rt " << rt << endl;
+    cout << "index: " << index << endl;
+    cout << "tag: " << tag << endl;
+
     if (cacheHit)
     {
-        // update history bits, and write to cache
-        cout << "sw hit" << endl;
-        updateHistoryBits(index, block);
-        cache[index][block].data = registers[rt.to_ulong() - 16];
+        cout << "cache hit" << endl;
+        cout << "store word from reg " << rt.to_ullong() - 16 << " to index " << index << endl;
+        swHit(index, block, rt);
     }
     else
     {
-        // write directly to memory
-        cout << "sw miss" << endl;
-        int address = getAddress(immediate);
-        memory[address] = registers[(rt.to_ulong() - 16)];
+        cout << "cache miss" << endl;
+        cout << "store word from reg " << rt.to_ullong() - 16 << " to index " << index << endl;
+        swMiss(index, rt, immediate);
     }
     return;
 }
 
-// execute load word instruction
+// store word, write hit
+void swHit(int index, int block, bitset<5> rt)
+{
+    // update history bits, and write to cache
+    updateHistoryBits(index, block);
+    cache[index][block].data = registers[rt.to_ulong() - 16];
+}
+
+// store word, write miss
+void swMiss(int index, bitset<5> rt, bitset<16> immediate)
+{
+    // write directly to memory
+    int address = getAddress(immediate);
+    memory[address] = registers[(rt.to_ulong() - 16)];
+}
+
 void execLoadWord(bitset<5> rt, bitset<16> immediate)
 {
     int index = getIndex(immediate);
     bitset<4> tag = getTag(immediate);
+
+    cout << "index: " << index << endl;
+    cout << "tag: " << tag << endl;
 
     bool cacheHit = false;
     int block = -1;
@@ -138,18 +151,26 @@ void execLoadWord(bitset<5> rt, bitset<16> immediate)
         }
     }
 
+    // displayMemory();
+
     if (cacheHit)
     {
-        // update history bits, and write to register
-        cout << "lw hit" << endl;
-        updateHistoryBits(index, block);
-        registers[rt.to_ulong() - 16] = cache[index][block].data;
+        cout << "cache hit, load word" << endl;
+        lwHit(index, block, rt);
     }
     else
     {
-        cout << "lw miss" << endl;
+        cout << "cache miss, load word" << endl;
         lwMiss(index, rt, immediate);
     }
+}
+
+// read hit
+void lwHit(int index, int block, bitset<5> rt)
+{
+    // update history bits, and write to register
+    updateHistoryBits(index, block);
+    registers[rt.to_ulong() - 16] = cache[index][block].data;
 }
 
 // read miss
@@ -197,12 +218,23 @@ void fetchInstructions()
         {
             memory[11] = 1;
         }
-
         instruction = stringToBitset(line);
-        cout << instruction << "\t";
+        cout << instruction;
         decodeInstruction(instruction);
+        if (count > 13)
+        {
+            break;
+        }
+        if (count > 6)
+        {
+            displayRegisters();
+            displayCache();
+            displayMemory();
+        }
+
+        count++;
+        cout << endl;
     }
-    cout << endl;
     inputFile.close();
 }
 
@@ -255,6 +287,7 @@ bitset<4> getTag(bitset<16> immediate)
     bitset<4> tag;
     for (int i = 5; i < 9; i++)
         tag[i - 5] = immediate[i];
+
     return tag;
 }
 
@@ -263,16 +296,17 @@ int getAddress(bitset<16> immediate)
     bitset<14> address;
     for (int i = 2; i < 16; i++)
         address[i - 2] = immediate[i];
+
+    cout << "address.toUlong: " << address.to_ulong() << endl;
     return address.to_ulong();
 }
 
 void displayMemory()
 {
-    cout << "Addr\tData" << endl;
+    cout << "Memory Contents:" << endl;
     for (int i = 0; i < MEM_SIZE; ++i)
     {
-        bitset<32> mem(memory[i]);
-        cout << i << ":\t" << mem << endl;
+        cout << "Block " << i << ": " << memory[i] << endl;
     }
     cout << endl;
 }
@@ -280,34 +314,33 @@ void displayMemory()
 void initializeMemory()
 {
     for (int i = 0; i < MEM_SIZE; ++i)
+    {
         memory[i] = i + 5;
+    }
 }
 
 void displayCache()
 {
-    for (int i = 0; i < CACHE_ASSOC; i++)
+    cout << "Cache Contents:" << endl;
+    for (int i = 0; i < CACHE_SIZE / CACHE_ASSOC; ++i)
     {
-        cout << "Cache Block " << i << endl;
-        cout << "Set#\tValid\tHist\tTag\tData" << endl;
-        for (int j = 0; j < CACHE_SIZE / CACHE_ASSOC; ++j)
+        for (int j = 0; j < CACHE_ASSOC; ++j)
         {
-            bitset<32> data(cache[j][i].data);
-
-            cout << j << "\t";
-            if (cache[j][i].valid)
+            cout << "Set " << i << ", Block " << j << ": ";
+            if (cache[i][j].valid)
             {
-                cout << "1\t";
-                cout << cache[j][i].history << "\t";
-                cout << cache[j][i].tag << "\t";
-                cout << data << endl;
+                cout << " H:" << cache[i][j].history;
+                cout << " V:1 Tag:" << cache[i][j].tag << " Data:" << cache[i][j].data;
             }
             else
             {
-                cout << "0\t-\t-\t-" << endl;
+                cout << " H:" << cache[i][j].history;
+                cout << " V:0";
             }
+            cout << endl;
         }
-        cout << endl;
     }
+    cout << endl;
 }
 
 bitset<32> stringToBitset(string line)
@@ -325,11 +358,9 @@ bitset<32> stringToBitset(string line)
 
 void displayRegisters()
 {
-    cout << "Registers" << endl;
     for (int i = 0; i < 8; ++i)
     {
-        bitset<32> reg(registers[i]);
-        cout << "$s" << i << ": " << reg << endl;
+        cout << "$s" << i << ": " << registers[i] << endl;
     }
     cout << endl;
 }
