@@ -63,6 +63,7 @@ void initializeRegisters()
 void displayCache();
 void displayMemory();
 void displayRegisters();
+bool PRINT_ZEROES = 0;
 
 int main()
 {
@@ -193,11 +194,6 @@ void fetchInstructions()
     int count = 0;
     while (getline(inputFile, line))
     {
-        if (count == 11)
-        {
-            memory[11] = 1;
-        }
-
         instruction = stringToBitset(line);
         cout << instruction << "\t";
         decodeInstruction(instruction);
@@ -303,7 +299,30 @@ void displayCache()
             }
             else
             {
-                cout << "0\t-\t-\t-" << endl;
+                // print zeroes instead of empty
+                if (PRINT_ZEROES)
+                {
+
+                    bitset<32> empty(0);
+                    cout << "0\t";
+
+                    if (cache[j][i].history)
+                        cout << "1\t";
+                    else
+                        cout << "0\t";
+
+                    cout << "0000\t";
+                    cout << empty << endl;
+                }
+                else
+                {
+                    cout << "0\t";
+                    if (cache[j][i].history)
+                        cout << "1\t";
+                    else
+                        cout << "0\t";
+                    cout << endl;
+                }
             }
         }
         cout << endl;
