@@ -6,43 +6,55 @@
 
 using namespace std;
 
-// Cache block structure
+// cache block structure
 struct CacheBlock
 {
-    bool valid;         // false for invalid, true for valid
-    bool coldStart = 1; // 0 for not cold start, 1 for cold start
-    bool history;       // 0 MRU, 1 LRU
+    bool valid = 0; // 0 for cold start, 1 for valid
+    bool history;   // 0 MRU, 1 LRU
     bitset<4> tag;
     int data;
 };
 
-// Cache size, memory size, instruction bits, cache associativity
+// cache size, memory size, instruction bits, cache associativity
 const int CACHE_SIZE = 16;
 const int CACHE_ASSOC = 2;
-const int I_BITS = 32;
 const int MEM_SIZE = 128;
 
-// Register file
+// register file
 int registers[8] = {0};
 
-// Cache structure
+// cache structure
 vector<vector<CacheBlock>> cache(CACHE_SIZE / CACHE_ASSOC, vector<CacheBlock>(CACHE_ASSOC));
 
-// Main memory
+// main memory
 int memory[MEM_SIZE];
 
-// Cache funcitons
-void processInstruction(bitset<I_BITS> instruction);
-void loadWord(bitset<5> rt, bitset<16> immediate);
-void storeWord(bitset<5> rt, bitset<16> immediate);
+// fetch and decode instructions
+void fetchInstructions();
+void decodeInstruction(bitset<32> instruction);
 
-// Helper functions
-bitset<4> getTag(bitset<16> immediate);
+// execute load word instruction, cache hit, and cache miss
+void execLoadWord(bitset<5> rt, bitset<16> immediate);
+void lwHit(int index, int block, bitset<5> rt);
+void lwMiss(int index, bitset<5> rt, bitset<16> immediate);
+
+// execute store word instruction, cache hit, and cache miss
+void execStoreWord(bitset<5> rt, bitset<16> immediate);
+void swHit(int index, int block, bitset<5> rt);
+void swMiss(int index, bitset<5> rt, bitset<16> immediate);
+
+// find least recently used block, and write back address
+int findLRUBlock(int index);
+int findWBAddress(int index, int block);
+void updateHistoryBits(int index, int block);
+
+// helper functions
+int getAddress(bitset<16> immediate);
 int getIndex(bitset<16> immediate);
-bitset<I_BITS> stringToBitset(string line);
-void executeInstructions();
+bitset<4> getTag(bitset<16> immediate);
+bitset<32> stringToBitset(string line);
 
-// Initialization and display functions
+// initialization and display functions
 void initializeMemory();
 void displayCache();
 void displayMemory();
@@ -50,179 +62,187 @@ void displayRegisters();
 
 int main()
 {
-    // Initialize memory, cache, and registers
     initializeMemory();
-    executeInstructions();
-    displayRegisters();
-    displayCache();
+
+    // fetch, decode, then execute instructions
+    fetchInstructions();
+
+    // displayRegisters();
+    // displayCache();
     // displayMemory();
 
     return 0;
 }
 
-void swCacheHit(int index, int way, bitset<5> rt)
-{
-    // don't update history because this block cannot be used again
-
-    // make dirty bit
-    cache[index%8][way].valid = false;
-
-    // write to cache
-    cache[index%8][way].data = registers[rt.to_ulong() - 16];
-}
-
-void swCacheMiss(int index, bitset<5> rt, bitset<16> immediate)
-{
-    // write directly to memory
-    memory[immediate.to_ulong()] = registers[rt.to_ulong() - 16];
-}
-
-void storeWord(bitset<5> rt, bitset<16> immediate)
+// store word
+void execStoreWord(bitset<5> rt, bitset<16> immediate)
 {
     int index = getIndex(immediate);
     bitset<4> tag = getTag(immediate);
 
     bool cacheHit = false;
-    int way = -1;
+    int block = -1;
 
     // Check if the data is in the cache
     for (int i = 0; i < CACHE_ASSOC; ++i)
     {
-        cout << "index: " << index << endl;
-        cout << "cache[index%8][i].valid: " << cache[index%8][i].valid << endl;
-        cout << "i: " << i << endl;
-        cout << endl;
-        if (cache[index%8][i].valid && cache[index%8][i].tag == tag)
+        if (cache[index][i].valid && cache[index][i].tag == tag)
         {
             cacheHit = true;
-            way = i;
+            block = i;
             break;
         }
     }
 
+    cout << "rt " << rt << endl;
+    cout << "index: " << index << endl;
+    cout << "tag: " << tag << endl;
+
     if (cacheHit)
-        swCacheHit(index, way, rt);
+    {
+        cout << "cache hit" << endl;
+        cout << "store word from reg " << rt.to_ullong() - 16 << " to index " << index << endl;
+        swHit(index, block, rt);
+    }
     else
-        swCacheMiss(index, rt, immediate);
-    // If it's a write operation, update the data in the cache and memory
-    // if (write)
-    // {
-    //     int regIndex = (int_address >> 2) & 0x07; // 3 bits for register index
-    //     cache[index][way].data = registers[regIndex];
-    //     memory[int_address >> 2] = registers[regIndex];
-    // }
+    {
+        cout << "cache miss" << endl;
+        cout << "store word from reg " << rt.to_ullong() - 16 << " to index " << index << endl;
+        swMiss(index, rt, immediate);
+    }
     return;
 }
 
-void lwCacheHit(int index, int way, bitset<5> rt)
+// store word, write hit
+void swHit(int index, int block, bitset<5> rt)
 {
-    // if hit update set history
-    if (way == 0)
-    {
-        cache[index%8][0].history = 0;
-        cache[index%8][1].history = 1;
-    }
-    // if hit update set history
-    else if (way == 1)
-    {
-        cache[index%8][0].history = 1;
-        cache[index%8][1].history = 0;
-    }
-    registers[rt.to_ulong() - 16] = cache[index%8][way].data;
+    // update history bits, and write to cache
+    updateHistoryBits(index, block);
+    cache[index][block].data = registers[rt.to_ulong() - 16];
 }
 
-void lwColdStart(int index, bitset<5> rt, bitset<16> immediate)
+// store word, write miss
+void swMiss(int index, bitset<5> rt, bitset<16> immediate)
 {
-    cout << "cold start" << endl
-         << endl;
-    // if cold start do not write back to memory
-    if (cache[index%8][0].coldStart == 1)
-    {
-        cache[index%8][0].coldStart = 0;
-        cache[index%8][0].history = 0;
-        cache[index%8][1].history = 1;
-
-        cache[index%8][0].valid = true;
-        cache[index%8][0].tag = getTag(immediate);
-        cache[index%8][0].data = memory[immediate.to_ulong()];
-
-        registers[rt.to_ulong() - 16] = cache[index%8][0].data;
-    }
-    // if cold start do not write back to memory
-    else if (cache[index%8][1].coldStart == 1)
-    {
-        cache[index%8][1].coldStart = 0;
-        cache[index%8][0].history = 1;
-        cache[index%8][1].history = 0;
-
-        cache[index%8][1].valid = 1;
-        cache[index%8][1].tag = getTag(immediate);
-        cache[index%8][1].data = memory[immediate.to_ulong()];
-
-        registers[rt.to_ulong() - 16] = cache[index%8][1].data;
-    }
+    // write directly to memory
+    int address = getAddress(immediate);
+    memory[address] = registers[(rt.to_ulong() - 16)];
 }
 
-void lwCacheMiss(int index, bitset<5> rt, bitset<16> immediate)
-{
-    // Find the LRU way
-    int way = (cache[index%8][0].history && cache[index%8][1].history) ? 0 : 1;
-
-    // Write back to memory
-    memory[immediate.to_ulong()] = cache[index%8][way].data;
-
-    // Update the cache block
-    cache[index%8][way].valid = true;
-    cache[index%8][way].tag = getTag(immediate);
-    cache[index%8][way].data = memory[immediate.to_ulong()];
-
-    // Update set history
-    if (way == 0)
-    {
-        cache[index%8][0].history = 0;
-        cache[index%8][1].history = 1;
-    }
-    else
-    {
-        cache[index%8][0].history = 1;
-        cache[index%8][1].history = 0;
-    }
-
-    // Update Registers
-    registers[rt.to_ulong() - 16] = cache[index%8][way].data;
-}
-
-void loadWord(bitset<5> rt, bitset<16> immediate)
+void execLoadWord(bitset<5> rt, bitset<16> immediate)
 {
     int index = getIndex(immediate);
     bitset<4> tag = getTag(immediate);
 
+    cout << "index: " << index << endl;
+    cout << "tag: " << tag << endl;
+
     bool cacheHit = false;
-    int way = -1;
+    int block = -1;
 
     // Check if the data is in the cache
     for (int i = 0; i < CACHE_ASSOC; ++i)
     {
-        if (cache[index%8][i].valid && cache[index%8][i].tag == tag)
+        if (cache[index][i].valid && cache[index][i].tag == tag)
         {
             cacheHit = true;
-            way = i;
+            block = i;
             break;
         }
     }
 
+    // displayMemory();
+
     if (cacheHit)
-        lwCacheHit(index, way, rt);
-    else if (cache[index%8][0].coldStart == 1 || cache[index%8][1].coldStart == 1)
-        lwColdStart(index, rt, immediate);
+    {
+        cout << "cache hit, load word" << endl;
+        lwHit(index, block, rt);
+    }
     else
-        lwCacheMiss(index, rt, immediate);
+    {
+        cout << "cache miss, load word" << endl;
+        lwMiss(index, rt, immediate);
+    }
 }
 
-// Function to read the instruction
-// '100011' for load and '101011' for store
-void processInstruction(bitset<I_BITS> instruction)
+// read hit
+void lwHit(int index, int block, bitset<5> rt)
 {
+    // update history bits, and write to register
+    updateHistoryBits(index, block);
+    registers[rt.to_ulong() - 16] = cache[index][block].data;
+}
+
+// read miss
+void lwMiss(int index, bitset<5> rt, bitset<16> immediate)
+{
+    // select the victim block, and set history bits
+    int block = findLRUBlock(index);
+    updateHistoryBits(index, block);
+
+
+    // if the block is valid, write back to memory
+    if (cache[index][block].valid == 1)
+    {
+        int writeBackAddress = findWBAddress(index, block);
+        memory[writeBackAddress] = cache[index][block].data;
+    }
+
+    // set cache data, tag, and valid bit
+    int address = getAddress(immediate);
+    cache[index][block].data = memory[address];
+    cache[index][block].tag = getTag(immediate);
+    cache[index][block].valid = true;
+
+    // read from cache to register
+    registers[rt.to_ulong() - 16] = cache[index][block].data;
+}
+
+// read instrctions from file
+void fetchInstructions()
+{
+    ifstream inputFile("input_file.txt");
+
+    if (!inputFile.is_open())
+    {
+        cerr << "Unable to open file" << endl;
+    }
+
+    bitset<32> instruction;
+    string line;
+
+    // read instruction from file
+    int count = 0;
+    while (getline(inputFile, line))
+    {
+        if (count == 11)
+        {
+            memory[11]= 1;
+        }
+        instruction = stringToBitset(line);
+        cout << instruction;
+        decodeInstruction(instruction);
+        if (count > 13)
+        {
+            break;
+        }
+        if (count > 6)
+        {
+            displayRegisters();
+            displayCache();
+            displayMemory();
+        }
+
+        count++;
+        cout << endl;
+    }
+    inputFile.close();
+}
+
+// decode the instruction and then execute store word or load word
+void decodeInstruction(bitset<32> instruction)
+{
+    // NOTE: rs (bits 21-25) is assumed to be zero for simplicity.
     bitset<6> opcode; // bits 26-31
     for (int i = 0; i < 6; i++)
     {
@@ -239,10 +259,11 @@ void processInstruction(bitset<I_BITS> instruction)
         immediate[i] = instruction[i];
     }
 
+    // '100011' for load and '101011' for store
     if (opcode == 35)
-        loadWord(rt, immediate);
+        execLoadWord(rt, immediate);
     else if (opcode == 43)
-        storeWord(rt, immediate);
+        execStoreWord(rt, immediate);
     else
     {
         cout << "error" << endl;
@@ -250,49 +271,37 @@ void processInstruction(bitset<I_BITS> instruction)
     }
 }
 
+// return index from immediate value, bits 2-5
 int getIndex(bitset<16> immediate)
 {
-    bitset<3> index;
-    for (int i = 0; i < 4; i++)
-        index[i] = immediate[i];
+    bitset<4> index("000");
+    for (int i = 2; i < 6; i++)
+        index[i - 2] = immediate[i];
+    index[3] = 0;
 
     return index.to_ulong();
 }
 
+// return tag from immediate value, bits 6-9
 bitset<4> getTag(bitset<16> immediate)
 {
     bitset<4> tag;
-    for (int i = 3; i < 7; i++)
-        tag[i - 3] = immediate[i];
+    for (int i = 5; i < 9; i++)
+        tag[i - 5] = immediate[i];
 
     return tag;
 }
 
-void executeInstructions()
+int getAddress(bitset<16> immediate)
 {
-    ifstream inputFile("input_file.txt");
+    bitset<14> address;
+    for (int i = 2; i < 16; i++)
+        address[i - 2] = immediate[i];
 
-    if (!inputFile.is_open())
-    {
-        cerr << "Unable to open file" << endl;
-    }
-
-    bitset<I_BITS> instruction;
-    string line;
-
-    int counter = 1;
-    while (getline(inputFile, line))
-    {
-        instruction = stringToBitset(line);
-        processInstruction(instruction);
-        // if (counter == 5)
-        //     break;
-        // counter++;
-    }
-    inputFile.close();
+    cout << "address.toUlong: " << address.to_ulong() << endl;
+    return address.to_ulong();
 }
 
-// Function to display main memory contents
 void displayMemory()
 {
     cout << "Memory Contents:" << endl;
@@ -303,7 +312,6 @@ void displayMemory()
     cout << endl;
 }
 
-// Function to initialize memory
 void initializeMemory()
 {
     for (int i = 0; i < MEM_SIZE; ++i)
@@ -312,7 +320,6 @@ void initializeMemory()
     }
 }
 
-// Function to display cache contents
 void displayCache()
 {
     cout << "Cache Contents:" << endl;
@@ -320,15 +327,15 @@ void displayCache()
     {
         for (int j = 0; j < CACHE_ASSOC; ++j)
         {
-            cout << "Set " << i << ", Way " << j << ": ";
+            cout << "Set " << i << ", Block " << j << ": ";
             if (cache[i][j].valid)
             {
-                cout << "CS:" << cache[i][j].coldStart << " H:" << cache[i][j].history;
+                cout << " H:" << cache[i][j].history;
                 cout << " V:1 Tag:" << cache[i][j].tag << " Data:" << cache[i][j].data;
             }
             else
             {
-                cout << "CS:" << cache[i][j].coldStart << " H:" << cache[i][j].history;
+                cout << " H:" << cache[i][j].history;
                 cout << " V:0";
             }
             cout << endl;
@@ -337,14 +344,14 @@ void displayCache()
     cout << endl;
 }
 
-bitset<I_BITS> stringToBitset(string line)
+bitset<32> stringToBitset(string line)
 {
-    bitset<I_BITS> instruction;
-    for (int i = 0; i < I_BITS; i++)
+    bitset<32> instruction;
+    for (int i = 0; i < 32; i++)
     {
         if (line[i] == '1')
         {
-            instruction.set(I_BITS - i - 1);
+            instruction.set(32 - i - 1);
         }
     }
     return instruction;
@@ -354,7 +361,64 @@ void displayRegisters()
 {
     for (int i = 0; i < 8; ++i)
     {
-        cout << "R" << i << ": " << registers[i] << endl;
+        cout << "$s" << i << ": " << registers[i] << endl;
     }
     cout << endl;
+}
+
+// find least recently used block
+int findLRUBlock(int index)
+{
+    int block = -1;
+    if (cache[index][0].history == 1 && cache[index][1].history == 1)
+    {
+        cout << "error in findLRUBlock()" << endl;
+        exit(1);
+    }
+
+    // cold start, choose block 0
+    if (cache[index][0].history == 0 && cache[index][1].history == 0)
+    {
+        block = 0;
+        cache[index][1].history = 1;
+    }
+    // choose block 0
+    else if (cache[index][0].history == 1)
+    {
+        block = 0;
+    }
+    // choose block 1
+    else if (cache[index][1].history == 1)
+    {
+        block = 1;
+    }
+    return block;
+}
+
+void updateHistoryBits(int index, int block)
+{
+    if (block == 0)
+    {
+        cache[index][0].history = 0;
+        cache[index][1].history = 1;
+    }
+    else if (block == 1)
+    {
+        cache[index][0].history = 1;
+        cache[index][1].history = 0;
+    }
+}
+
+// find write back address
+int findWBAddress(int index, int block)
+{
+    bitset<7> address;
+    address = index;
+
+    for (int i = 3; i < 7; i++)
+    {
+        address[i] = 0;
+        address[i] = cache[index][block].tag[i - 3];
+    }
+    return address.to_ulong();
 }
