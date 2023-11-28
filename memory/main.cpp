@@ -10,7 +10,7 @@ using namespace std;
 struct CacheBlock
 {
     bool valid = 0; // 0 for cold start, 1 for valid
-    bool history;   // 0 MRU, 1 LRU
+    bool history;   // 1 MRU, 0 LRU
     bitset<4> tag;
     int data;
 };
@@ -357,25 +357,19 @@ void displayRegisters()
 int findLRUBlock(int index)
 {
     int block = -1;
-    if (cache[index][0].history == 1 && cache[index][1].history == 1)
-    {
-        cout << "error in findLRUBlock()" << endl;
-        exit(1);
-    }
 
     // cold start, choose block 0
-    if (cache[index][0].history == 0 && cache[index][1].history == 0)
+    if (cache[index][0].valid == 0 && cache[index][1].valid == 0)
     {
         block = 0;
-        cache[index][1].history = 1;
     }
     // choose block 0
-    else if (cache[index][0].history == 1)
+    else if (cache[index][0].history == 0)
     {
         block = 0;
     }
     // choose block 1
-    else if (cache[index][1].history == 1)
+    else if (cache[index][1].history == 0)
     {
         block = 1;
     }
@@ -386,13 +380,13 @@ void updateHistoryBits(int index, int block)
 {
     if (block == 0)
     {
-        cache[index][0].history = 0;
-        cache[index][1].history = 1;
+        cache[index][0].history = 1;
+        cache[index][1].history = 0;
     }
     else if (block == 1)
     {
-        cache[index][0].history = 1;
-        cache[index][1].history = 0;
+        cache[index][0].history = 0;
+        cache[index][1].history = 1;
     }
 }
 
