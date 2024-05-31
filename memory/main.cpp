@@ -1,3 +1,10 @@
+// Jason Whitlow
+// CSCI 113
+// Program 8
+// This program simulates a cache memory system with a 2-way set associative cache.
+
+//! NOTE: This program assumes that the the rs bits are zero for simplicity.
+
 #include <iostream>
 #include <bitset>
 #include <vector>
@@ -53,17 +60,11 @@ bitset<32> stringToBitset(string line);
 
 // initialization and display functions
 void initializeMemory();
-void initializeRegisters()
-{
-    for (int i = 0; i < 8; ++i)
-    {
-        registers[i] = 0;
-    }
-}
+void initializeRegisters();
 void displayCache();
 void displayMemory();
 void displayRegisters();
-bool PRINT_ZEROES = 0;
+bool PRINT_ZEROES = 1;
 
 int main()
 {
@@ -195,7 +196,7 @@ void fetchInstructions()
     while (getline(inputFile, line))
     {
         instruction = stringToBitset(line);
-        cout << instruction << "\t";
+        cout << instruction << " \t";
         decodeInstruction(instruction);
     }
     cout << endl;
@@ -254,6 +255,7 @@ bitset<4> getTag(bitset<16> immediate)
     return tag;
 }
 
+// converts the immediate byte address to a word address
 int getAddress(bitset<16> immediate)
 {
     bitset<14> address;
@@ -351,6 +353,14 @@ void displayRegisters()
         cout << "$s" << i << ": " << reg << endl;
     }
     cout << endl;
+}
+
+void initializeRegisters()
+{
+    for (int i = 0; i < 8; ++i)
+    {
+        registers[i] = 0;
+    }
 }
 
 // find least recently used block
